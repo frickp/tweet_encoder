@@ -1,0 +1,1 @@
+docker run -p 8888:8888 -it -v /Users/pf494t/local_scripts/jupyter_docker_files:/tmp nlp_autoencoder
