@@ -380,6 +380,58 @@ class PredictionEncoder(Encoder):
         self.optimizer = tf.train.GradientDescentOptimizer(
             learning_rate=0.1).minimize(self.loss)
         self.saver = tf.train.Saver()
+
+    def indev_build_lstm_binary_pred_graph(self):
+            """
+            define data flow and graph for tensorflow model. In this model
+            learn the encodings which enable best predictions of sentiment
+            """
+            tf.reset_default_graph()
+            train_data = (self.training_seq, self.training_labels)
+            train_dataset = tf.data.Dataset.from_tensor_slices(train_data)\
+                                        .repeat().batch(self.batch_size)
+            self.iterator = tf.data.Iterator.from_structure(train_dataset.output_types,
+                                                            train_dataset.output_shapes)
+            test_data = (self.testing_seq, self.testing_labels)
+            test_dataset = tf.data.Dataset.from_tensor_slices(
+                test_data).repeat().batch(self.batch_size)
+            features, labels = self.iterator.get_next()
+            self.train_init_op = self.iterator.make_initializer(
+                train_dataset, name='training_iterator')
+            self.test_init_op = self.iterator.make_initializer(
+                test_dataset, name='testing_iterator')
+
+            embeddings = tf.nn.embedding_lookup(self.normed_embedding_mat,
+                                                features, name='batch_embeddings')
+            embeddings_d = tf.nn.dropout(embeddings, 0.5, name='emb_dropout')
+
+            cell_fw_enc = tf.contrib.rnn.LSTMCell(
+                self.lstm_units, name='lstm_enc_f')
+            cell_bw_enc = tf.contrib.rnn.LSTMCell(
+                self.lstm_units, name='lstm_enc_b')
+
+            cell_fw_enc = tf.nn.rnn_cell.DropoutWrapper(
+                cell_fw_enc, output_keep_prob=0.5, seed=42)
+            cell_bw_enc = tf.nn.rnn_cell.DropoutWrapper(
+                cell_bw_enc, output_keep_prob=0.5, seed=42)
+
+            (output_fw_enc, output_bw_enc), _ = tf.nn.bidirectional_dynamic_rnn(cell_fw_enc,
+                                                                                cell_bw_enc,
+                                                                                embeddings_d,
+                                                                                dtype=tf.float32)
+
+            cat = tf.concat([output_fw_enc, output_bw_enc], axis=-1)
+            maxpool = tf.layers.max_pooling1d(cat, 50, 50)
+            self.enc_flat = tf.contrib.layers.flatten(maxpool)
+            dropout = tf.nn.dropout(self.enc_flat, 0.5, name='maxpool_dropout')
+            preds = tf.layers.dense(self.enc_flat, 2)
+
+            self.loss = tf.losses.sigmoid_cross_entropy(
+                multi_class_labels=labels, logits=preds)
+            #self.optimizer = tf.train.AdamOptimizer().minimize(self.loss)
+            self.optimizer = tf.train.GradientDescentOptimizer(
+                learning_rate=0.1).minimize(self.loss)
+            self.saver = tf.train.Saver()
     
 class MaxpoolEncoder(Encoder):
     """
